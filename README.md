@@ -64,3 +64,5 @@ npm run dev
 - Organic Social Autopilot.
 - Shopify conversion/session metrics via Make (`read_reports` is not currently authorized).
 - Instagram/TikTok channel completion and Make agent activity callbacks into Supabase remain future wiring.
+
+Deployment trigger: Vibe OS v0.6 social workflow.
