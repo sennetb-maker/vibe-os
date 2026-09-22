@@ -18,6 +18,19 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (body?.caption !== undefined) patch.caption = body.caption;
   if (body?.destination_url !== undefined) patch.destination_url = body.destination_url;
   if (body?.cta !== undefined) patch.cta = body.cta;
+  if (body?.hashtags !== undefined) patch.hashtags = body.hashtags;
+  if (body?.platform !== undefined) patch.platform = body.platform;
+  if (body?.post_type !== undefined) patch.post_type = body.post_type;
+  if (body?.product_name !== undefined) patch.product_name = body.product_name || null;
+  if (body?.visual_preset !== undefined) {
+    patch.visual_preset = body.visual_preset;
+    patch.render_status = "needs_render";
+  }
+  if (body?.crop_mode !== undefined) {
+    patch.crop_mode = body.crop_mode;
+    patch.render_status = "needs_render";
+  }
+  if (body?.agent_notes !== undefined) patch.agent_notes = body.agent_notes;
   if (body?.approved || status === "approved" || status === "scheduled") patch.approved_at = new Date().toISOString();
 
   const { data, error } = await supabase.from("social_posts").update(patch).eq("id", id).select("id,platform,status,scheduled_for").single();
