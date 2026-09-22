@@ -58,6 +58,17 @@ export function SocialPlanner({ posts }: { posts: any[] }) {
   const scheduled = posts.filter((p) => p.status === "scheduled" || p.status === "approved").length;
   const published = posts.filter((p) => p.status === "published").length;
 
+  async function generatePlan() {
+    setBusy(true); setNotice("");
+    try {
+      const r = await fetch("/api/social/generate-plan", { method: "POST" });
+      const d = await r.json();
+      setNotice(d.message || (r.ok ? "14-day plan created." : "Could not create the social plan."));
+      if (r.ok) router.refresh();
+    } catch { setNotice("Could not reach the Social Media Manager right now."); }
+    finally { setBusy(false); }
+  }
+
   async function approveOne(id: string) {
     setBusy(true); setNotice("");
     try {
@@ -98,7 +109,10 @@ export function SocialPlanner({ posts }: { posts: any[] }) {
 
     <div className="plannerToolbar">
       <div className="viewToggle"><button className={view === "calendar" ? "active" : ""} onClick={() => setView("calendar")}>14-day calendar</button><button className={view === "list" ? "active" : ""} onClick={() => setView("list")}>List</button></div>
-      <button className="approveSchedule" disabled={!reviewPosts.length || busy} onClick={approveSchedule}>{reviewPosts.length ? `Approve 14-day schedule (${reviewPosts.length})` : "Nothing awaiting approval"}</button>
+      <div className="plannerActions">
+        <button className="generatePlan" disabled={busy} onClick={generatePlan}>{busy ? "Social Manager working…" : posts.length ? "Refresh 14-day plan" : "Build first 14-day plan"}</button>
+        <button className="approveSchedule" disabled={!reviewPosts.length || busy} onClick={approveSchedule}>{reviewPosts.length ? `Approve 14-day schedule (${reviewPosts.length})` : "Nothing awaiting approval"}</button>
+      </div>
     </div>
     {notice && <div className="inlineNotice">{notice}</div>}
 
