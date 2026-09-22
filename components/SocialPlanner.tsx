@@ -74,6 +74,9 @@ export function SocialPlanner({ posts }: { posts: any[] }) {
   async function approveOne(id: string) {
     setBusy(true); setNotice("");
     try {
+      const render = await fetch(`/api/social/posts/${id}/render`, { method: "POST" });
+      const renderData = await render.json();
+      if (!render.ok) throw new Error(renderData.message || "Could not prepare the edited media.");
       const r = await fetch(`/api/social/posts/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "scheduled", approved: true }) });
       const d = await r.json(); setNotice(d.message || (r.ok ? "Post approved." : "Could not approve post."));
       if (r.ok) router.refresh();
@@ -85,6 +88,13 @@ export function SocialPlanner({ posts }: { posts: any[] }) {
     if (!reviewPosts.length) return;
     setBusy(true); setNotice("");
     try {
+      const rendered = await Promise.all(reviewPosts.map(async (p) => {
+        const r = await fetch(`/api/social/posts/${p.id}/render`, { method: "POST" });
+        const d = await r.json();
+        return { ok: r.ok, message: d.message };
+      }));
+      const failed = rendered.filter((x) => !x.ok);
+      if (failed.length) throw new Error(`${failed.length} post${failed.length === 1 ? "" : "s"} could not prepare edited media. Open those drafts and review them before approving the schedule.`);
       const r = await fetch("/api/social/approve-schedule", { method: "POST" });
       const d = await r.json(); setNotice(d.message || (r.ok ? "Schedule approved." : "Could not approve schedule."));
       if (r.ok) router.refresh();
