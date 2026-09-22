@@ -1,0 +1,120 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+
+const TZ = "America/Chicago";
+
+function dateKey(value: Date | string) {
+  const d = typeof value === "string" ? new Date(value) : value;
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(d);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value || "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+function dayLabel(value: Date) {
+  return {
+    dow: new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: TZ }).format(value).toUpperCase(),
+    date: new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: TZ }).format(value),
+  };
+}
+
+function postTime(value?: string | null) {
+  if (!value) return "Time TBD";
+  return new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone: TZ }).format(new Date(value));
+}
+
+function prettyStatus(value?: string | null) {
+  const s = String(value || "working");
+  if (s === "review" || s === "ready_for_approval") return "Ready for Approval";
+  if (s === "working" || s === "draft") return "Agent Working";
+  if (s === "scheduled") return "Scheduled";
+  if (s === "approved") return "Approved";
+  if (s === "published") return "Published";
+  if (s === "failed") return "Needs Attention";
+  return s.replaceAll("_", " ");
+}
+
+function isReview(p: any) { return p.status === "review" || p.status === "ready_for_approval"; }
+function isWorking(p: any) { return p.status === "working" || p.status === "draft"; }
+
+export function SocialPlanner({ posts }: { posts: any[] }) {
+  const router = useRouter();
+  const [view, setView] = useState<"calendar" | "list">("calendar");
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+
+  const days = useMemo(() => {
+    const now = new Date();
+    const y = Number(new Intl.DateTimeFormat("en-US", { timeZone: TZ, year: "numeric" }).format(now));
+    const m = Number(new Intl.DateTimeFormat("en-US", { timeZone: TZ, month: "numeric" }).format(now));
+    const d = Number(new Intl.DateTimeFormat("en-US", { timeZone: TZ, day: "numeric" }).format(now));
+    return Array.from({ length: 14 }, (_, i) => new Date(Date.UTC(y, m - 1, d + i, 18, 0, 0)));
+  }, []);
+
+  const dayKeys = new Set(days.map((d) => dateKey(d)));
+  const reviewPosts = posts.filter((p) => isReview(p) && p.scheduled_for && dayKeys.has(dateKey(p.scheduled_for)));
+  const working = posts.filter(isWorking).length;
+  const scheduled = posts.filter((p) => p.status === "scheduled" || p.status === "approved").length;
+  const published = posts.filter((p) => p.status === "published").length;
+
+  async function approveOne(id: string) {
+    setBusy(true); setNotice("");
+    try {
+      const r = await fetch(`/api/social/posts/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "scheduled", approved: true }) });
+      const d = await r.json(); setNotice(d.message || (r.ok ? "Post approved." : "Could not approve post."));
+      if (r.ok) router.refresh();
+    } catch { setNotice("Could not approve this post right now."); }
+    finally { setBusy(false); }
+  }
+
+  async function approveSchedule() {
+    if (!reviewPosts.length) return;
+    setBusy(true); setNotice("");
+    try {
+      const r = await fetch("/api/social/approve-schedule", { method: "POST" });
+      const d = await r.json(); setNotice(d.message || (r.ok ? "Schedule approved." : "Could not approve schedule."));
+      if (r.ok) router.refresh();
+    } catch { setNotice("Could not approve the schedule right now."); }
+    finally { setBusy(false); }
+  }
+
+  const card = (p: any) => <div className={`calendarPost status-${String(p.status).replaceAll("_", "-")}`} key={p.id}>
+    <div className="calendarPostTop"><span className={`platformPill platform-${String(p.platform).toLowerCase()}`}>{p.platform}</span><small>{postTime(p.scheduled_for)}</small></div>
+    <b>{p.caption?.slice(0, 72) || p.product_name || "Social post in progress"}</b>
+    <span>{p.post_type ? String(p.post_type).toUpperCase() : "POST"}{p.product_name ? ` · ${p.product_name}` : ""}</span>
+    <em>{prettyStatus(p.status)}</em>
+    {isReview(p) && <button className="miniApprove" disabled={busy} onClick={() => approveOne(p.id)}>Approve</button>}
+  </div>;
+
+  return <>
+    <section className="socialWorkflowBar">
+      <div><small>01</small><b>Content Inbox</b><span>Raw source assets</span></div>
+      <div><small>02</small><b>Agent Working</b><span>{working} posts in production</span></div>
+      <div className={reviewPosts.length ? "attention" : ""}><small>03</small><b>Ready for Approval</b><span>{reviewPosts.length} in next 14 days</span></div>
+      <div><small>04</small><b>Scheduled</b><span>{scheduled} approved posts</span></div>
+      <div><small>05</small><b>Published</b><span>{published} tracked posts</span></div>
+    </section>
+
+    <div className="plannerToolbar">
+      <div className="viewToggle"><button className={view === "calendar" ? "active" : ""} onClick={() => setView("calendar")}>14-day calendar</button><button className={view === "list" ? "active" : ""} onClick={() => setView("list")}>List</button></div>
+      <button className="approveSchedule" disabled={!reviewPosts.length || busy} onClick={approveSchedule}>{reviewPosts.length ? `Approve 14-day schedule (${reviewPosts.length})` : "Nothing awaiting approval"}</button>
+    </div>
+    {notice && <div className="inlineNotice">{notice}</div>}
+
+    {view === "calendar" ? <div className="twoWeekCalendar">
+      {days.map((day) => {
+        const key = dateKey(day); const label = dayLabel(day); const dayPosts = posts.filter((p) => p.scheduled_for && dateKey(p.scheduled_for) === key);
+        return <div className="calendarDay" key={key}><div className="calendarDayHead"><small>{label.dow}</small><b>{label.date}</b></div><div className="calendarDayBody">{dayPosts.length ? dayPosts.map(card) : <span className="emptyDay">Open</span>}</div></div>;
+      })}
+    </div> : <div className="plannerList">
+      {posts.length ? posts.map((p) => <div className="plannerListRow" key={p.id}>
+        <div className="plannerThumb">{p.renderedUrl ? <img src={p.renderedUrl} alt="" /> : p.sourceAssets?.[0]?.signedUrl ? <img src={p.sourceAssets[0].signedUrl} alt="" /> : <span>{String(p.platform || "P").slice(0, 2).toUpperCase()}</span>}</div>
+        <div className="plannerWhen"><b>{p.scheduled_for ? new Date(p.scheduled_for).toLocaleString("en-US", { timeZone: TZ, month: "short", day: "numeric" }) : "Date TBD"}</b><small>{postTime(p.scheduled_for)}</small></div>
+        <div className="plannerCopy"><b>{p.caption || "Caption being written by Social Media Manager"}</b><span>{p.platform} · {p.post_type || "post"}{p.destination_url ? " · linked" : ""}</span></div>
+        <em>{prettyStatus(p.status)}</em>
+        {isReview(p) && <button className="miniApprove" disabled={busy} onClick={() => approveOne(p.id)}>Approve</button>}
+      </div>) : <div className="libraryEmpty"><b>No social posts yet.</b><p>The Social Media Manager will create working drafts from your Content Inbox. Finished proposals will land here for approval with copy, destination links, platform and publish time.</p></div>}
+    </div>}
+  </>;
+}
