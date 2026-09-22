@@ -12,6 +12,9 @@ type PlannedPost = {
   destination_url?: string | null;
   product_name?: string | null;
   creative_instructions?: string | null;
+  hashtags?: string | null;
+  visual_preset?: string | null;
+  crop_mode?: string | null;
   asset_ids?: string[];
 };
 
@@ -126,16 +129,21 @@ export async function POST() {
     "Use your connected Shopify/catalog knowledge or helper to verify product names and URLs where possible. Never invent a product URL. If you cannot verify an exact product URL, use https://vibeandahalf.com/collections/shop-all.",
     "",
     "CREATIVE TREATMENT",
-    "For each post, decide whether the raw asset should stay mostly untouched, be cropped/reframed, sequenced into a carousel, stitched into a slideshow/reel, receive subtle film treatment, or receive restrained text overlay. Never alter the apparel artwork/product itself. Put those instructions in creative_instructions.",
+    "The owner does NOT want text or graphic overlays added to the photos. Improve the photography itself: crop/reframe, exposure, contrast, warmth, saturation, subtle grain/film character, direct-flash feel when appropriate, and sequencing of multiple source assets for carousels/slideshows. Never alter the apparel artwork or product design.",
+    "Choose visual_preset from: natural, warm_film, muted_90s, direct_flash, rich_club. Choose crop_mode from: portrait, square, original. Put additional photo-editing direction in creative_instructions.",
     "",
     "SCHEDULING",
     `Schedule between ${now.toISOString()} and ${end.toISOString()}. Use America/Chicago audience timing and return scheduled_for as a full ISO-8601 timestamp WITH UTC OFFSET.`,
     "",
     "OUTPUT",
     "Return ONLY valid JSON. No markdown and no commentary.",
-    '{"posts":[{"platform":"Instagram|Facebook|TikTok","scheduled_for":"ISO-8601 with offset","post_type":"image|carousel|reel|video|story","asset_ids":["UUID from SOURCE CONTENT only"],"caption":"finished platform-specific caption","cta":"short CTA or null","destination_url":"verified vibeandahalf.com URL","product_name":"verified product name or null","creative_instructions":"specific edit/assembly direction"}]}',
+    '{"posts":[{"platform":"Instagram|Facebook|TikTok","scheduled_for":"ISO-8601 with offset","post_type":"image|carousel|reel|video|story","asset_ids":["UUID from SOURCE CONTENT only"],"caption":"finished platform-specific caption","hashtags":"0-5 useful hashtags as one string, or empty string","cta":"short CTA or null","destination_url":"verified vibeandahalf.com URL","product_name":"verified product name or null","visual_preset":"natural|warm_film|muted_90s|direct_flash|rich_club","crop_mode":"portrait|square|original","creative_instructions":"specific photo edit / crop / sequence direction, with NO text overlays"}]}',
     "",
-    "Rules: asset_ids may ONLY contain IDs supplied in SOURCE CONTENT. Do not include inspiration IDs. Captions should sound natural, concise and on-brand. Use hashtags sparingly. Do not claim reviews, customer quotes, scarcity or social proof that was not supplied.",
+    "CAPTION VOICE",
+    "Write like a stylish person running a small brand, not a luxury-brand copy generator. Dry, casual, specific, occasionally funny. Avoid generic phrases like quiet confidence, timeless, premium, elevated, effortless, modern ease, crafted, good taste, and club-approved. Do not overuse POV. Do not describe the brand as premium in the caption. Let the photo and product do that work.",
+    "Keep most captions to 1-3 short sentences. Football posts can be funnier and more conversational. Product posts should name the actual product when verified. Hashtags should be useful and restrained, usually 0-4.",
+    "",
+    "Rules: asset_ids may ONLY contain IDs supplied in SOURCE CONTENT. Do not include inspiration IDs. Do not add copy/text/graphics on top of the photos. Do not claim reviews, customer quotes, scarcity or social proof that was not supplied.",
   ].join("\n");
 
   await supabase.from("activity_log").insert({
@@ -183,6 +191,10 @@ export async function POST() {
         destination_url: safeDestination(post.destination_url),
         product_name: post.product_name ? String(post.product_name).trim() : null,
         agent_notes: post.creative_instructions ? String(post.creative_instructions).trim() : null,
+        hashtags: post.hashtags ? String(post.hashtags).trim() : "",
+        visual_preset: ["natural","warm_film","muted_90s","direct_flash","rich_club"].includes(String(post.visual_preset || "")) ? String(post.visual_preset) : "muted_90s",
+        crop_mode: ["portrait","square","original"].includes(String(post.crop_mode || "")) ? String(post.crop_mode) : "portrait",
+        render_status: "needs_render",
         updated_at: new Date().toISOString(),
       });
       links.push({ index: rows.length - 1, assetIds });
