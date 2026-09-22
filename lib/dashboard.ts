@@ -138,7 +138,7 @@ export async function getSocialPosts(limit = 60) {
   if (!supabase) return [];
   const { data, error } = await supabase
     .from("social_posts")
-    .select("id,platform,asset_id,caption,post_type,cta,destination_url,product_name,agent_notes,rendered_asset_path,status,scheduled_for,approved_at,published_at,created_at,updated_at")
+    .select("id,platform,asset_id,caption,hashtags,post_type,cta,destination_url,product_name,agent_notes,visual_preset,crop_mode,render_status,rendered_asset_path,status,scheduled_for,approved_at,published_at,created_at,updated_at")
     .order("scheduled_for", { ascending: true, nullsFirst: false })
     .limit(limit);
   if (error || !data) return [];
@@ -164,6 +164,12 @@ export async function getSocialPosts(limit = 60) {
   }));
   const assetMap = new Map<string, any>(signedAssets.map((a: any) => [String(a.id), a]));
 
+  const { data: generatedMedia } = postIds.length ? await supabase
+    .from("social_post_media")
+    .select("id,post_id,source_asset_id,storage_path,media_type,sort_order,treatment")
+    .in("post_id", postIds)
+    .order("sort_order", { ascending: true }) : { data: [] as any[] };
+
   return Promise.all(data.map(async (post: any) => {
     const orderedLinks = (links || []).filter((x: any) => x.post_id === post.id).sort((a: any, b: any) => a.sort_order - b.sort_order);
     const sourceList = orderedLinks.map((x: any) => { const asset = assetMap.get(String(x.asset_id)); return asset ? { ...asset, role: x.role, sort_order: x.sort_order } : null; }).filter(Boolean) as any[];
@@ -173,7 +179,12 @@ export async function getSocialPosts(limit = 60) {
       const { data: signed } = await supabase.storage.from(contentBucket()).createSignedUrl(post.rendered_asset_path, 3600);
       renderedUrl = signed?.signedUrl ?? null;
     }
-    return { ...post, sourceAssets: sourceList, renderedUrl };
+    const mediaRows = (generatedMedia || []).filter((m: any) => m.post_id === post.id).sort((a: any, b: any) => a.sort_order - b.sort_order);
+    const renderedMedia = await Promise.all(mediaRows.map(async (m: any) => {
+      const { data: signed } = await supabase.storage.from(contentBucket()).createSignedUrl(m.storage_path, 3600);
+      return { ...m, signedUrl: signed?.signedUrl ?? null };
+    }));
+    return { ...post, sourceAssets: sourceList, renderedUrl, renderedMedia };
   }));
 }
 
