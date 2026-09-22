@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { PostEditor } from "@/components/PostEditor";
 
 const TZ = "America/Chicago";
 
@@ -43,6 +44,7 @@ export function SocialPlanner({ posts }: { posts: any[] }) {
   const [view, setView] = useState<"calendar" | "list">("calendar");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  const [selected, setSelected] = useState<any | null>(null);
 
   const days = useMemo(() => {
     const now = new Date();
@@ -90,12 +92,12 @@ export function SocialPlanner({ posts }: { posts: any[] }) {
     finally { setBusy(false); }
   }
 
-  const card = (p: any) => <div className={`calendarPost status-${String(p.status).replaceAll("_", "-")}`} key={p.id}>
+  const card = (p: any) => <div className={`calendarPost status-${String(p.status).replaceAll("_", "-")}`} key={p.id} role="button" tabIndex={0} onClick={() => setSelected(p)} onKeyDown={(e) => { if (e.key === "Enter") setSelected(p); }}>
     <div className="calendarPostTop"><span className={`platformPill platform-${String(p.platform).toLowerCase()}`}>{p.platform}</span><small>{postTime(p.scheduled_for)}</small></div>
     <b>{p.caption?.slice(0, 72) || p.product_name || "Social post in progress"}</b>
     <span>{p.post_type ? String(p.post_type).toUpperCase() : "POST"}{p.product_name ? ` · ${p.product_name}` : ""}</span>
     <em>{prettyStatus(p.status)}</em>
-    {isReview(p) && <button className="miniApprove" disabled={busy} onClick={() => approveOne(p.id)}>Approve</button>}
+    {isReview(p) && <button className="miniApprove" disabled={busy} onClick={(e) => { e.stopPropagation(); approveOne(p.id); }}>Approve</button>}
   </div>;
 
   return <>
@@ -122,13 +124,14 @@ export function SocialPlanner({ posts }: { posts: any[] }) {
         return <div className="calendarDay" key={key}><div className="calendarDayHead"><small>{label.dow}</small><b>{label.date}</b></div><div className="calendarDayBody">{dayPosts.length ? dayPosts.map(card) : <span className="emptyDay">Open</span>}</div></div>;
       })}
     </div> : <div className="plannerList">
-      {posts.length ? posts.map((p) => <div className="plannerListRow" key={p.id}>
+      {posts.length ? posts.map((p) => <div className="plannerListRow" key={p.id} role="button" tabIndex={0} onClick={() => setSelected(p)} onKeyDown={(e) => { if (e.key === "Enter") setSelected(p); }}>
         <div className="plannerThumb">{p.renderedUrl ? <img src={p.renderedUrl} alt="" /> : p.sourceAssets?.[0]?.signedUrl ? <img src={p.sourceAssets[0].signedUrl} alt="" /> : <span>{String(p.platform || "P").slice(0, 2).toUpperCase()}</span>}</div>
         <div className="plannerWhen"><b>{p.scheduled_for ? new Date(p.scheduled_for).toLocaleString("en-US", { timeZone: TZ, month: "short", day: "numeric" }) : "Date TBD"}</b><small>{postTime(p.scheduled_for)}</small></div>
         <div className="plannerCopy"><b>{p.caption || "Caption being written by Social Media Manager"}</b><span>{p.platform} · {p.post_type || "post"}{p.destination_url ? " · linked" : ""}</span></div>
         <em>{prettyStatus(p.status)}</em>
-        {isReview(p) && <button className="miniApprove" disabled={busy} onClick={() => approveOne(p.id)}>Approve</button>}
+        {isReview(p) && <button className="miniApprove" disabled={busy} onClick={(e) => { e.stopPropagation(); approveOne(p.id); }}>Approve</button>}
       </div>) : <div className="libraryEmpty"><b>No social posts yet.</b><p>The Social Media Manager will create working drafts from your Content Inbox. Finished proposals will land here for approval with copy, destination links, platform and publish time.</p></div>}
     </div>}
+    {selected && <PostEditor post={selected} onClose={() => setSelected(null)} />}
   </>;
 }
