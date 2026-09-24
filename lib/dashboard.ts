@@ -203,3 +203,168 @@ export async function getCreativeAssets(limit = 20) {
     return { ...asset, signedUrl: signed?.signedUrl ?? null };
   }));
 }
+
+export type StoreTrendPoint = {
+  day: string;
+  sessions: number;
+  visitors: number;
+  pageviews: number;
+  cartAddSessions: number;
+  checkoutSessions: number;
+  completedCheckoutSessions: number;
+  conversionRate: number | null;
+};
+
+export type TrafficSourceMetric = {
+  source: string;
+  sessions: number;
+  visitors: number;
+  conversionRate: number | null;
+};
+
+export type LandingPageMetric = {
+  path: string;
+  sessions: number;
+  pageviews: number;
+  conversionRate: number | null;
+};
+
+export type StorePerformance = StoreMetrics & {
+  visitors: number | null;
+  pageviews: number | null;
+  cartAddSessions: number | null;
+  checkoutSessions: number | null;
+  completedCheckoutSessions: number | null;
+  addedToCartRate: number | null;
+  reachedCheckoutRate: number | null;
+  analyticsCapturedAt: string | null;
+  analyticsSource: "shopifyql" | "unavailable";
+  trend: StoreTrendPoint[];
+  trafficSources: TrafficSourceMetric[];
+  landingPages: LandingPageMetric[];
+};
+
+function numeric(value: any): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+export async function getStorePerformance(): Promise<StorePerformance> {
+  const base = await getStoreMetrics();
+  const empty: StorePerformance = {
+    ...base,
+    visitors: null,
+    pageviews: null,
+    cartAddSessions: null,
+    checkoutSessions: null,
+    completedCheckoutSessions: null,
+    addedToCartRate: null,
+    reachedCheckoutRate: null,
+    analyticsCapturedAt: null,
+    analyticsSource: "unavailable",
+    trend: [],
+    trafficSources: [],
+    landingPages: [],
+  };
+
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return empty;
+
+  const { data, error } = await supabase
+    .from("store_performance_snapshots")
+    .select("sessions,visitors,pageviews,cart_add_sessions,checkout_sessions,completed_checkout_sessions,conversion_rate,added_to_cart_rate,reached_checkout_rate,source,raw,captured_at")
+    .eq("period", "today")
+    .order("captured_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) return empty;
+
+  const raw: any = data.raw || {};
+  const trend: StoreTrendPoint[] = Array.isArray(raw.trend) ? raw.trend.map((x: any) => ({
+    day: String(x.day || ""),
+    sessions: numeric(x.sessions) || 0,
+    visitors: numeric(x.visitors) || 0,
+    pageviews: numeric(x.pageviews) || 0,
+    cartAddSessions: numeric(x.cart_add_sessions) || 0,
+    checkoutSessions: numeric(x.checkout_sessions) || 0,
+    completedCheckoutSessions: numeric(x.completed_checkout_sessions) || 0,
+    conversionRate: numeric(x.conversion_rate),
+  })) : [];
+
+  const trafficSources: TrafficSourceMetric[] = Array.isArray(raw.traffic_sources) ? raw.traffic_sources.map((x: any) => ({
+    source: String(x.source || "unknown"),
+    sessions: numeric(x.sessions) || 0,
+    visitors: numeric(x.visitors) || 0,
+    conversionRate: numeric(x.conversion_rate),
+  })) : [];
+
+  const landingPages: LandingPageMetric[] = Array.isArray(raw.landing_pages) ? raw.landing_pages.map((x: any) => ({
+    path: String(x.path || "/"),
+    sessions: numeric(x.sessions) || 0,
+    pageviews: numeric(x.pageviews) || 0,
+    conversionRate: numeric(x.conversion_rate),
+  })) : [];
+
+  return {
+    ...base,
+    sessions: numeric(data.sessions),
+    visitors: numeric(data.visitors),
+    pageviews: numeric(data.pageviews),
+    cartAddSessions: numeric(data.cart_add_sessions),
+    checkoutSessions: numeric(data.checkout_sessions),
+    completedCheckoutSessions: numeric(data.completed_checkout_sessions),
+    conversion: numeric(data.conversion_rate),
+    addedToCartRate: numeric(data.added_to_cart_rate),
+    reachedCheckoutRate: numeric(data.reached_checkout_rate),
+    analyticsCapturedAt: data.captured_at || null,
+    analyticsSource: data.source === "shopifyql" ? "shopifyql" : "unavailable",
+    trend,
+    trafficSources,
+    landingPages,
+  };
+}
+
+export async function getStoreProductMetrics(limit = 12) {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from("store_product_metrics")
+    .select("id,metric_date,shopify_product_id,product_title,product_handle,product_views,product_sessions,cart_additions,purchases,revenue,captured_at")
+    .order("metric_date", { ascending: false })
+    .order("product_views", { ascending: false, nullsFirst: false })
+    .limit(limit);
+  return error ? [] : (data || []);
+}
+
+export async function getSocialPerformance() {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return { accounts: [], posts: [] };
+
+  const [{ data: accounts }, { data: postMetrics }] = await Promise.all([
+    supabase
+      .from("social_account_metrics")
+      .select("platform,metric_date,followers,reach,impressions,views,profile_views,website_clicks,engagements,likes,comments,shares,saves,posts,fetched_at")
+      .order("metric_date", { ascending: false })
+      .limit(120),
+    supabase
+      .from("social_post_metrics")
+      .select("id,social_post_id,platform,external_post_id,metric_date,reach,impressions,views,likes,comments,shares,saves,clicks,engagements,fetched_at")
+      .order("metric_date", { ascending: false })
+      .limit(100),
+  ]);
+
+  const metricRows = postMetrics || [];
+  const postIds = Array.from(new Set(metricRows.map((x: any) => x.social_post_id).filter(Boolean)));
+  const { data: posts } = postIds.length ? await supabase
+    .from("social_posts")
+    .select("id,platform,caption,product_name,published_at,status")
+    .in("id", postIds) : { data: [] as any[] };
+
+  const postMap = new Map((posts || []).map((p: any) => [String(p.id), p]));
+  return {
+    accounts: accounts || [],
+    posts: metricRows.map((m: any) => ({ ...m, post: postMap.get(String(m.social_post_id)) || null })),
+  };
+}
