@@ -1,4 +1,4 @@
-export type IconName = "home"|"chat"|"content"|"social"|"creative"|"bell"|"upload"|"check"|"clock"|"arrow"|"store"|"approval"|"message"|"calendar"|"spark"|"menu";
+export type IconName = "home"|"chat"|"content"|"social"|"creative"|"bell"|"upload"|"check"|"clock"|"arrow"|"store"|"approval"|"message"|"calendar"|"spark"|"menu"|"chart";
 
 export function Icon({name,size=18}:{name:IconName;size?:number}){
   const props={width:size,height:size,viewBox:"0 0 24 24",fill:"none",stroke:"currentColor",strokeWidth:1.7,strokeLinecap:"round" as const,strokeLinejoin:"round" as const,"aria-hidden":true};
@@ -18,7 +18,7 @@ export function Icon({name,size=18}:{name:IconName;size?:number}){
     message:<><path d="M4 5h16v11H8l-4 3z"/><path d="M8 9h8M8 12h5"/></>,
     calendar:<><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></>,
     spark:<><path d="m12 3 1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5z"/><path d="m18 14 .8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8z"/></>,
-    menu:<><path d="M4 7h16M4 12h16M4 17h16"/></>
+    menu:<><path d="M4 7h16M4 12h16M4 17h16"/></>,\n    chart:<><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/></>
   };
   return <svg {...props}>{paths[name]}</svg>
 }
