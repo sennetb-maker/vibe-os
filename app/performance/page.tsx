@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Topbar } from "@/components/Topbar";
 import { getSocialPerformance, getStorePerformance, getStoreProductMetrics } from "@/lib/dashboard";
 
@@ -39,7 +40,7 @@ export default async function Performance(){
   const trafficMax=Math.max(1,...store.trafficSources.map(x=>x.sessions));
   const captured=store.analyticsCapturedAt ? new Date(store.analyticsCapturedAt) : null;
   const ageMinutes=captured ? Math.max(0,Math.round((Date.now()-captured.getTime())/60000)) : null;
-  const analyticsFresh=ageMinutes!=null && ageMinutes<=90;
+  const analyticsFresh=store.analyticsSource==="shopifyql" && ageMinutes!=null && ageMinutes<=90;
 
   const channels=[
     {key:"instagram",label:"Instagram",status:"Brand analytics connection pending"},
@@ -144,6 +145,6 @@ export default async function Performance(){
       </div> : <div className="performanceEmpty productEmpty"><b>No social analytics imported yet.</b><p>Facebook publishing is connected, but post insights are not wired yet. Instagram and TikTok still need the VIBE & A HALF brand accounts authorized before their metrics can flow into this dashboard.</p></div>}
     </section>
 
-    {!analyticsFresh && <div className="analyticsConnectionNote"><b>Next connection step</b><p>The dashboard is built and the first verified ShopifyQL snapshot is loaded. The Make Shopify connection still needs <code>read_reports</code> reauthorization before Vibe OS can refresh sessions, pageviews and conversion automatically.</p></div>}
+    {!analyticsFresh && <div className="analyticsConnectionNote"><div><b>Connect live Shopify reporting</b><p>The dashboard can show the verified snapshot now. Connect the private Vibe OS Analytics app once to make sessions, pageviews and conversion refresh directly from Shopify whenever you open Vibe OS.</p></div><Link href="/settings/shopify">Connect Shopify Analytics</Link></div>}
   </div></>;
 }
