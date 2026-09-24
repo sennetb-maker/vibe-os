@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Icon, IconName } from "./Icon";
 
 const items:{href:string;label:string;icon:IconName}[] = [
-  {href:"/", label:"Home", icon:"home"},
+  {href:"/", label:"Home", icon:"home"},\n  {href:"/performance", label:"Performance", icon:"chart"},
   {href:"/agents", label:"Agents", icon:"chat"},
   {href:"/content", label:"Content", icon:"content"},
   {href:"/social", label:"Social", icon:"social"},
