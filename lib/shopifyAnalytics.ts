@@ -106,8 +106,10 @@ export async function verifyShopifyAnalyticsSecret(clientSecret: string) {
   const appScopes = (payload?.data?.currentAppInstallation?.accessScopes || []).map((x: any) => String(x.handle));
   const effectiveScopes = Array.from(new Set([...scopes, ...appScopes]));
 
-  if (!effectiveScopes.includes("read_reports")) {
-    throw new Error(`The app connected, but Shopify did not grant read_reports. Granted scopes: ${effectiveScopes.join(", ") || "none"}.`);
+  const requiredScopes = ["read_reports", "read_orders", "read_products"];
+  const missingScopes = requiredScopes.filter((scope) => !effectiveScopes.includes(scope));
+  if (missingScopes.length) {
+    throw new Error(`The app connected, but Shopify is missing: ${missingScopes.join(", ")}. Granted scopes: ${effectiveScopes.join(", ") || "none"}.`);
   }
 
   const parseErrors = payload?.data?.analytics?.parseErrors || [];
