@@ -1,4 +1,5 @@
 import { contentBucket, getSupabaseAdmin } from "@/lib/supabaseServer";
+import { getLiveShopifyAnalyticsSnapshot } from "@/lib/shopifyAnalytics";
 
 export type StoreMetrics = {
   revenue: number;
@@ -251,6 +252,114 @@ function numeric(value: any): number | null {
 }
 
 export async function getStorePerformance(): Promise<StorePerformance> {
+  try {
+    const live = await getLiveShopifyAnalyticsSnapshot();
+    if (live) {
+      const orders = Array.isArray(live.orders) ? live.orders : [];
+      const todayOrders = orders.filter((o: any) => o?.createdAt && sameCentralDay(o.createdAt) && !o.cancelledAt);
+      const revenue = todayOrders.reduce((sum: number, o: any) => {
+        const n = Number(o?.currentTotalPriceSet?.shopMoney?.amount ?? 0);
+        return sum + (Number.isFinite(n) ? n : 0);
+      }, 0);
+
+      const row: any = live.today || {};
+      const trend: StoreTrendPoint[] = (live.trend || []).map((x: any) => ({
+        day: String(x.day || ""),
+        sessions: numeric(x.sessions) || 0,
+        visitors: numeric(x.online_store_visitors) || 0,
+        pageviews: numeric(x.pageviews) || 0,
+        cartAddSessions: numeric(x.sessions_with_cart_additions) || 0,
+        checkoutSessions: numeric(x.sessions_that_reached_checkout) || 0,
+        completedCheckoutSessions: numeric(x.sessions_that_completed_checkout) || 0,
+        conversionRate: numeric(x.conversion_rate),
+      }));
+      const trafficSources: TrafficSourceMetric[] = (live.trafficSources || []).map((x: any) => ({
+        source: String(x.referrer_source || "unknown"),
+        sessions: numeric(x.sessions) || 0,
+        visitors: numeric(x.online_store_visitors) || 0,
+        conversionRate: numeric(x.conversion_rate),
+      }));
+      const landingPages: LandingPageMetric[] = (live.landingPages || []).map((x: any) => ({
+        path: String(x.landing_page_path || "/"),
+        sessions: numeric(x.sessions) || 0,
+        pageviews: numeric(x.pageviews) || 0,
+        conversionRate: numeric(x.conversion_rate),
+      }));
+
+      const result: StorePerformance = {
+        revenue,
+        orders: todayOrders.length,
+        aov: todayOrders.length ? revenue / todayOrders.length : null,
+        conversion: numeric(row.conversion_rate),
+        sessions: numeric(row.sessions),
+        source: "live",
+        visitors: numeric(row.online_store_visitors),
+        pageviews: numeric(row.pageviews),
+        cartAddSessions: numeric(row.sessions_with_cart_additions),
+        checkoutSessions: numeric(row.sessions_that_reached_checkout),
+        completedCheckoutSessions: numeric(row.sessions_that_completed_checkout),
+        addedToCartRate: numeric(row.added_to_cart_rate),
+        reachedCheckoutRate: numeric(row.reached_checkout_rate),
+        analyticsCapturedAt: new Date().toISOString(),
+        analyticsSource: "shopifyql",
+        trend,
+        trafficSources,
+        landingPages,
+      };
+
+      const supabase = getSupabaseAdmin();
+      if (supabase) {
+        const raw = {
+          trend: trend.map((x) => ({
+            day: x.day,
+            sessions: x.sessions,
+            visitors: x.visitors,
+            pageviews: x.pageviews,
+            cart_add_sessions: x.cartAddSessions,
+            checkout_sessions: x.checkoutSessions,
+            completed_checkout_sessions: x.completedCheckoutSessions,
+            conversion_rate: x.conversionRate,
+          })),
+          traffic_sources: trafficSources.map((x) => ({
+            source: x.source,
+            sessions: x.sessions,
+            visitors: x.visitors,
+            conversion_rate: x.conversionRate,
+          })),
+          landing_pages: landingPages.map((x) => ({
+            path: x.path,
+            sessions: x.sessions,
+            pageviews: x.pageviews,
+            conversion_rate: x.conversionRate,
+          })),
+        };
+        await supabase.from("store_performance_snapshots").insert({
+          period: "today",
+          period_start: new Date().toISOString().slice(0, 10),
+          period_end: new Date().toISOString().slice(0, 10),
+          sessions: result.sessions,
+          visitors: result.visitors,
+          pageviews: result.pageviews,
+          cart_add_sessions: result.cartAddSessions,
+          checkout_sessions: result.checkoutSessions,
+          completed_checkout_sessions: result.completedCheckoutSessions,
+          conversion_rate: result.conversion,
+          added_to_cart_rate: result.addedToCartRate,
+          reached_checkout_rate: result.reachedCheckoutRate,
+          revenue: result.revenue,
+          orders: result.orders,
+          aov: result.aov,
+          source: "shopifyql",
+          raw,
+        });
+      }
+
+      return result;
+    }
+  } catch {
+    // Fall through to the existing Make + stored snapshot path until direct analytics is configured.
+  }
+
   const base = await getStoreMetrics();
   const empty: StorePerformance = {
     ...base,
@@ -325,7 +434,6 @@ export async function getStorePerformance(): Promise<StorePerformance> {
     landingPages,
   };
 }
-
 export async function getStoreProductMetrics(limit = 12) {
   const supabase = getSupabaseAdmin();
   if (!supabase) return [];
