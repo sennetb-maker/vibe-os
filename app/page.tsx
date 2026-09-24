@@ -4,7 +4,7 @@ import { AgentChat } from "@/components/AgentChat";
 import { UploadBox } from "@/components/UploadBox";
 import { ApprovalInbox } from "@/components/ApprovalInbox";
 import { Icon } from "@/components/Icon";
-import { getContentAssets, getContentInboxCount, getPendingApprovals, getRecentActivity, getSocialPosts, getStoreMetrics } from "@/lib/dashboard";
+import { getContentAssets, getContentInboxCount, getPendingApprovals, getRecentActivity, getSocialPosts, getStorePerformance } from "@/lib/dashboard";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +29,7 @@ function dayParts(value?:string|null){
 
 export default async function Home(){
   const [metrics, assets, contentInbox, approvals, activity, posts] = await Promise.all([
-    getStoreMetrics(), getContentAssets(3), getContentInboxCount(), getPendingApprovals(5), getRecentActivity(5), getSocialPosts(3)
+    getStorePerformance(), getContentAssets(3), getContentInboxCount(), getPendingApprovals(5), getRecentActivity(5), getSocialPosts(3)
   ]);
   const scheduled = posts.length ? posts.map((p:any)=>{
     const dp=dayParts(p.scheduled_for)||{day:"—",date:"—"};
