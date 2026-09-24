@@ -428,7 +428,7 @@ export async function getStorePerformance(): Promise<StorePerformance> {
     addedToCartRate: numeric(data.added_to_cart_rate),
     reachedCheckoutRate: numeric(data.reached_checkout_rate),
     analyticsCapturedAt: data.captured_at || null,
-    analyticsSource: data.source === "shopifyql" ? "shopifyql" : "unavailable",
+    analyticsSource: "unavailable",
     trend,
     trafficSources,
     landingPages,
