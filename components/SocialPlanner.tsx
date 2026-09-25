@@ -51,7 +51,7 @@ export function SocialPlanner({ posts }: { posts: any[] }) {
     const y = Number(new Intl.DateTimeFormat("en-US", { timeZone: TZ, year: "numeric" }).format(now));
     const m = Number(new Intl.DateTimeFormat("en-US", { timeZone: TZ, month: "numeric" }).format(now));
     const d = Number(new Intl.DateTimeFormat("en-US", { timeZone: TZ, day: "numeric" }).format(now));
-    return Array.from({ length: 14 }, (_, i) => new Date(Date.UTC(y, m - 1, d + i, 18, 0, 0)));
+    return Array.from({ length: 7 }, (_, i) => new Date(Date.UTC(y, m - 1, d + i, 18, 0, 0)));
   }, []);
 
   const dayKeys = new Set(days.map((d) => dateKey(d)));
@@ -65,7 +65,7 @@ export function SocialPlanner({ posts }: { posts: any[] }) {
     try {
       const r = await fetch("/api/social/generate-plan", { method: "POST" });
       const d = await r.json();
-      setNotice(d.message || (r.ok ? "14-day plan created." : "Could not create the social plan."));
+      setNotice(d.message || (r.ok ? "7-day plan created." : "Could not create the social plan."));
       if (r.ok) router.refresh();
     } catch { setNotice("Could not reach the Social Media Manager right now."); }
     finally { setBusy(false); }
@@ -114,16 +114,16 @@ export function SocialPlanner({ posts }: { posts: any[] }) {
     <section className="socialWorkflowBar">
       <div><small>01</small><b>Content Inbox</b><span>Raw source assets</span></div>
       <div><small>02</small><b>Agent Working</b><span>{working} posts in production</span></div>
-      <div className={reviewPosts.length ? "attention" : ""}><small>03</small><b>Ready for Approval</b><span>{reviewPosts.length} in next 14 days</span></div>
+      <div className={reviewPosts.length ? "attention" : ""}><small>03</small><b>Ready for Approval</b><span>{reviewPosts.length} in next 7 days</span></div>
       <div><small>04</small><b>Scheduled</b><span>{scheduled} approved posts</span></div>
       <div><small>05</small><b>Published</b><span>{published} tracked posts</span></div>
     </section>
 
     <div className="plannerToolbar">
-      <div className="viewToggle"><button className={view === "calendar" ? "active" : ""} onClick={() => setView("calendar")}>14-day calendar</button><button className={view === "list" ? "active" : ""} onClick={() => setView("list")}>List</button></div>
+      <div className="viewToggle"><button className={view === "calendar" ? "active" : ""} onClick={() => setView("calendar")}>7-day calendar</button><button className={view === "list" ? "active" : ""} onClick={() => setView("list")}>List</button></div>
       <div className="plannerActions">
-        <button className="generatePlan" disabled={busy} onClick={generatePlan}>{busy ? "Social Manager working…" : posts.length ? "Refresh 14-day plan" : "Build first 14-day plan"}</button>
-        <button className="approveSchedule" disabled={!reviewPosts.length || busy} onClick={approveSchedule}>{reviewPosts.length ? `Approve 14-day schedule (${reviewPosts.length})` : "Nothing awaiting approval"}</button>
+        <button className="generatePlan" disabled={busy} onClick={generatePlan}>{busy ? "Social Manager working…" : posts.length ? "Refresh 7-day plan" : "Build first 7-day plan"}</button>
+        <button className="approveSchedule" disabled={!reviewPosts.length || busy} onClick={approveSchedule}>{reviewPosts.length ? `Approve 7-day schedule (${reviewPosts.length})` : "Nothing awaiting approval"}</button>
       </div>
     </div>
     {notice && <div className="inlineNotice">{notice}</div>}
