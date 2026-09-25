@@ -16,6 +16,8 @@ type PlannedPost = {
   visual_preset?: string | null;
   crop_mode?: string | null;
   asset_ids?: string[];
+  content_lane?: string | null;
+  concept_title?: string | null;
 };
 
 function extractJson(raw: string) {
