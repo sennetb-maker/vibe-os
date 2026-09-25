@@ -59,7 +59,7 @@ export async function POST() {
 
   const { data: assets, error: assetError } = await supabase
     .from("content_assets")
-    .select("id,file_name,storage_path,media_type,status,product_name,garment_color,setting,orientation,agent_notes,created_at")
+    .select("id,file_name,storage_path,media_type,status,product_name,garment_color,setting,orientation,agent_notes,ai_description,drive_file_id,created_at")
     .in("status", ["inbox", "working", "used"])
     .order("created_at", { ascending: false })
     .limit(80);
@@ -70,13 +70,14 @@ export async function POST() {
     const { data: signed } = await supabase.storage.from(contentBucket()).createSignedUrl(asset.storage_path, 60 * 60 * 4);
     return {
       id: asset.id,
+      drive_file_id: asset.drive_file_id,
       file_name: asset.file_name,
       media_type: asset.media_type,
       product_name: asset.product_name,
       garment_color: asset.garment_color,
       setting: asset.setting,
       orientation: asset.orientation,
-      notes: asset.agent_notes,
+      notes: asset.agent_notes || asset.ai_description,
       image_url: signed?.signedUrl || null,
     };
   }));
@@ -97,59 +98,76 @@ export async function POST() {
   }));
 
   const now = new Date();
-  const end = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+  const end = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const realVideoAssetIds = new Set(
+    signedAssets.filter((a: any) => String(a.media_type || "").startsWith("video/")).map((a: any) => String(a.id))
+  );
+
+  const recentStart = new Date(Date.now() - 21 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: recentVibeOsPosts } = await supabase
+    .from("social_posts")
+    .select("platform,caption,post_type,product_name,status,published_at,scheduled_for")
+    .or(`published_at.gte.${recentStart},scheduled_for.gte.${recentStart}`)
+    .order("created_at", { ascending: false })
+    .limit(40);
 
   const prompt = [
-    "You are the VIBE & A HALF Social Media Manager. Build the first rolling 14-day organic social calendar for the brand.",
+    "Build VIBE & A HALF's rolling 7-day organic social plan from the raw content library.",
     "",
-    "GOAL",
-    "The owner wants to upload raw content and inspiration, then have you decide what to post, how to package it, what copy to write, what product/collection it links to, and when each platform should receive it. The calendar should feel human and editorial, not robotic or repetitive.",
+    "MANDATORY: before finalizing the plan, call Read Social Content Queue to use the Creative Librarian indexing, call Read Recent Instagram Posts so manual posts count as real history, and call Read Complete Shopify Catalog before naming a product or making a product claim.",
     "",
-    "BRAND",
-    "VIBE & A HALF is premium modern-vintage lifestyle apparel: early-1990s private clubs, racquet clubs, neighborhood restaurants/bars, old hotel merch, Sunday football culture, wine/supper clubs and understated social-club humor. Chic, nostalgic, premium, slightly irreverent. Never novelty-merch energy.",
+    "RAW UPLOADS ARE INGREDIENTS, NOT POSTS. Group complementary files by shoot/model/look/product/setting. Decide whether each concept should be a carousel, still, story, or actual-video Reel/TikTok. Do not exhaust a whole shoot in one week; hold strong unused material for later.",
     "",
-    "CONTENT MIX",
-    "Balance brand/lifestyle, humor/culture, product discovery, social proof and direct conversion. Avoid consecutive hard-sell posts. Reuse strong source assets thoughtfully, but do not make every platform receive the same post at the same time.",
+    "BRAND: premium nostalgic sport-and-leisure built around a fictional early-1990s racquet/health/country club, resort pro shop, football Sunday, understated Americana and old-money athleisure. Sporty but fashionable, preppy but not stuffy, premium without flash, aspirational but approachable.",
     "",
-    "PLATFORM BEHAVIOR",
-    "Instagram: premium lifestyle, carousels, polished-but-candid product discovery, occasional reels.",
-    "TikTok: casual short-form concepts, humor, football/culture POVs, slideshows/reels using available source content.",
-    "Facebook: strongest Instagram concepts adapted for Facebook plus product/drop/community posts.",
+    "CREATIVE FEEL: mix premium editorial fashion, believable everyday moments, polished hero imagery, intentionally imperfect candid frames, product storytelling and sport/culture energy. Favor natural expressions, subtle grain, muted rich color, occasional direct flash, movement, real texture and believable human imperfection. Avoid plastic AI perfection, generic influencer imagery, hypebeast styling, hardcore gym energy, fake luxury and country-club cosplay.",
     "",
-    "CADENCE",
-    "Create roughly 18-24 total posts across the next 14 days, typically 1-2 total posts per day across the brand, not 1-2 per platform. Include all three platforms over the period. Do not force a post onto every platform every day.",
+    "ROLLING MIX: about 40% lifestyle/editorial, 20% product/detail, 15% candid/social, 15% sport/culture/fan-energy, 10% direct conversion. This is a guide, not a quota.",
     "",
-    "SOURCE CONTENT",
+    "CADENCE FOR THE NEXT 7 DAYS:",
+    "- Instagram: aim for about 5 feed pieces. Prefer a mix of carousels, strong stills and actual-video Reels. Do not force Reels if there is no real video.",
+    "- TikTok: 3-4 posts only when the selected source includes actual video. If there is no suitable video, omit TikTok rather than pretending stills are videos.",
+    "- Facebook: 2-3 selective adaptations of the strongest broadly appealing concepts. Do not mirror every Instagram post.",
+    "- Stories can be proposed as supporting content.",
+    "- Total output will usually be 7-12 platform posts depending on the library.",
+    "",
+    "FORMAT RULES:",
+    "- Carousel: 3-6 complementary stills. Strong rhythm is hero → alternate → detail → candid → strong closer.",
+    "- Single image: use when one frame is strong/iconic/editorial enough to stand alone.",
+    "- Reel/video: use only when at least one selected source asset is an actual video. The current renderer does not yet convert still photos into video. You may note a future slideshow/Reel opportunity in creative_instructions, but the actual post_type must stay image/carousel/story until a real video exists.",
+    "- Rotate close/medium/wide, male/female, product/lifestyle, studio/environment, polished/imperfect, front/back, stillness/movement, sport/social and product categories.",
+    "",
+    "PRODUCT PRIORITIES: rotate hats, premium crewnecks/sweatshirts, graphic tees, racquet/health-club pieces, Socially Sporty, RUN THE BALL., OFFSIDES, Sunday Parlay, Sunday Scaries and recognizable VIBE & A HALF logo pieces when exact products are verified. Hats deserve frequent close-up treatment. Do not let one slogan dominate.",
+    "",
+    "CAPTION VOICE: concise, confident, natural, slightly witty and specific. Write like a stylish person running a small brand. Avoid generic e-commerce language, motivational fitness clichés, fake urgency/scarcity, excessive emojis and AI-luxury copy. Most captions should be 1-3 short sentences; some can be only a few words. Hashtags restrained.",
+    "",
+    "PRODUCT ACCURACY: never invent or alter product wording, embroidery, design placement, color, material, fit, price, availability, popularity, sale status or scarcity. Reject obviously malformed AI faces/hands/products or inaccurate merchandise.",
+    "",
+    "SOURCE CONTENT — publishable raw inventory. Final asset_ids MUST use these Supabase UUIDs. drive_file_id lets you match the Creative Librarian's Drive index:",
     JSON.stringify(signedAssets),
     "",
-    "INSPIRATION / REFERENCE ONLY — NEVER POST THESE FILES",
+    "RECENT VIBE OS HISTORY — supplement the live Instagram history you read with the tool:",
+    JSON.stringify(recentVibeOsPosts || []),
+    "",
+    "INSPIRATION / REFERENCE ONLY — NEVER POST THESE FILES:",
     JSON.stringify(signedInspiration),
     "",
-    "SHOPIFY",
-    "Use your connected Shopify/catalog knowledge or helper to verify product names and URLs where possible. Never invent a product URL. If you cannot verify an exact product URL, use https://vibeandahalf.com/collections/shop-all.",
+    "PHOTO TREATMENT: no added text/graphic overlays. Recommend crop/reframe, exposure, contrast, warmth, saturation and subtle film character only. Never alter apparel artwork.",
+    "Choose visual_preset from natural, warm_film, muted_90s, direct_flash, rich_club. Choose crop_mode from portrait, square, original.",
     "",
-    "CREATIVE TREATMENT",
-    "The owner does NOT want text or graphic overlays added to the photos. Improve the photography itself: crop/reframe, exposure, contrast, warmth, saturation, subtle grain/film character, direct-flash feel when appropriate, and sequencing of multiple source assets for carousels/slideshows. Never alter the apparel artwork or product design.",
-    "Choose visual_preset from: natural, warm_film, muted_90s, direct_flash, rich_club. Choose crop_mode from: portrait, square, original. Put additional photo-editing direction in creative_instructions.",
-    "",
-    "SCHEDULING",
+    "SCHEDULING:",
     `Schedule between ${now.toISOString()} and ${end.toISOString()}. Use America/Chicago audience timing and return scheduled_for as a full ISO-8601 timestamp WITH UTC OFFSET.`,
     "",
-    "OUTPUT",
-    "Return ONLY valid JSON. No markdown and no commentary.",
-    '{"posts":[{"platform":"Instagram|Facebook|TikTok","scheduled_for":"ISO-8601 with offset","post_type":"image|carousel|reel|video|story","asset_ids":["UUID from SOURCE CONTENT only"],"caption":"finished platform-specific caption","hashtags":"0-5 useful hashtags as one string, or empty string","cta":"short CTA or null","destination_url":"verified vibeandahalf.com URL","product_name":"verified product name or null","visual_preset":"natural|warm_film|muted_90s|direct_flash|rich_club","crop_mode":"portrait|square|original","creative_instructions":"specific photo edit / crop / sequence direction, with NO text overlays"}]}',
+    "OUTPUT: return ONLY valid JSON. No markdown or commentary.",
+    '{"posts":[{"platform":"Instagram|Facebook|TikTok","scheduled_for":"ISO-8601 with offset","post_type":"image|carousel|reel|video|story","asset_ids":["Supabase UUID from SOURCE CONTENT only"],"caption":"finished platform-specific caption","hashtags":"0-5 useful hashtags as one string, or empty string","cta":"short CTA or null","destination_url":"verified vibeandahalf.com URL","product_name":"verified product name or null","content_lane":"lifestyle_editorial|product_detail|candid_social|sport_culture|conversion","concept_title":"short internal concept name","visual_preset":"natural|warm_film|muted_90s|direct_flash|rich_club","crop_mode":"portrait|square|original","creative_instructions":"specific crop/sequence/edit direction; NO text overlays"}]}',
     "",
-    "CAPTION VOICE",
-    "Write like a stylish person running a small brand, not a luxury-brand copy generator. Dry, casual, specific, occasionally funny. Avoid generic phrases like quiet confidence, timeless, premium, elevated, effortless, modern ease, crafted, good taste, and club-approved. Do not overuse POV. Do not describe the brand as premium in the caption. Let the photo and product do that work.",
-    "Keep most captions to 1-3 short sentences. Football posts can be funnier and more conversational. Product posts should name the actual product when verified. Hashtags should be useful and restrained, usually 0-4.",
-    "",
-    "Rules: asset_ids may ONLY contain IDs supplied in SOURCE CONTENT. Do not include inspiration IDs. Do not add copy/text/graphics on top of the photos. Do not claim reviews, customer quotes, scarcity or social proof that was not supplied.",
+    "Rules: asset_ids may ONLY contain IDs supplied in SOURCE CONTENT. Do not include inspiration IDs. Do not claim reviews, customer quotes, scarcity or social proof that was not supplied.",
   ].join("\n");
 
   await supabase.from("activity_log").insert({
     source: "Social Media Manager",
     event_type: "social_plan_requested",
-    summary: `Building a 14-day plan from ${assets.length} source assets and ${signedInspiration.length} inspiration references`,
+    summary: `Building a 7-day plan from ${assets.length} raw source assets and ${signedInspiration.length} inspiration references`,
   });
 
   try {
@@ -180,17 +198,25 @@ export async function POST() {
       if (!Number.isFinite(dt.getTime()) || dt < now || dt > end) continue;
       const assetIds = (post.asset_ids || []).map(String).filter((id) => validAssetIds.has(id)).slice(0, 8);
       if (!assetIds.length) continue;
+      let postType = String(post.post_type || "image").toLowerCase();
+      if ((postType === "reel" || postType === "video" || platform === "TikTok") && !assetIds.some((id) => realVideoAssetIds.has(id))) continue;
+      if (postType === "carousel" && assetIds.length < 2) postType = "image";
+      const metadata = [
+        post.content_lane ? `Lane: ${String(post.content_lane)}` : "",
+        post.concept_title ? `Concept: ${String(post.concept_title)}` : "",
+        post.creative_instructions ? String(post.creative_instructions).trim() : "",
+      ].filter(Boolean).join(" · ");
       rows.push({
         platform,
         asset_id: assetIds[0],
         caption: String(post.caption).trim(),
         status: "review",
         scheduled_for: dt.toISOString(),
-        post_type: String(post.post_type || "image").toLowerCase(),
+        post_type: postType,
         cta: post.cta ? String(post.cta).trim() : null,
         destination_url: safeDestination(post.destination_url),
         product_name: post.product_name ? String(post.product_name).trim() : null,
-        agent_notes: post.creative_instructions ? String(post.creative_instructions).trim() : null,
+        agent_notes: metadata || null,
         hashtags: post.hashtags ? String(post.hashtags).trim() : "",
         visual_preset: ["natural","warm_film","muted_90s","direct_flash","rich_club"].includes(String(post.visual_preset || "")) ? String(post.visual_preset) : "muted_90s",
         crop_mode: ["portrait","square","original"].includes(String(post.crop_mode || "")) ? String(post.crop_mode) : "portrait",
@@ -200,7 +226,7 @@ export async function POST() {
       links.push({ index: rows.length - 1, assetIds });
     }
 
-    if (rows.length < 7) throw new Error("The generated plan did not contain enough usable scheduled posts.");
+    if (rows.length < 5) throw new Error("The generated weekly plan did not contain enough usable posts from the available assets.");
 
     const { data: oldDrafts } = await supabase.from("social_posts")
       .select("id")
@@ -234,11 +260,11 @@ export async function POST() {
     await supabase.from("activity_log").insert({
       source: "Social Media Manager",
       event_type: "social_plan_ready",
-      summary: `${rows.length} posts prepared for owner approval across the next 14 days`,
+      summary: `${rows.length} posts prepared for owner approval across the next 7 days`,
       payload: { post_count: rows.length, source_asset_count: usedIds.size },
     });
 
-    return NextResponse.json({ message: `Social Media Manager prepared ${rows.length} posts for the next 14 days. Review the calendar, then approve it.`, count: rows.length });
+    return NextResponse.json({ message: `Social Media Manager built a ${rows.length}-post 7-day plan from your raw content. Review the calendar and approve what you like.`, count: rows.length });
   } catch (e: any) {
     await supabase.from("activity_log").insert({
       source: "Social Media Manager",
