@@ -115,10 +115,13 @@ export function SocialPlanner({ posts, assets }: { posts: any[]; assets: any[] }
   async function approveOne(id: string) {
     setBusy(true); setNotice("");
     try {
-      const render = await fetch(`/api/social/posts/${id}/render`, { method: "POST" });
-      if (!render.ok) {
-        const d = await render.json().catch(() => ({}));
-        throw new Error(d.message || "Could not prepare media.");
+      const target = posts.find((p) => p.id === id);
+      if (target?.sourceAssets?.length) {
+        const render = await fetch(`/api/social/posts/${id}/render`, { method: "POST" });
+        if (!render.ok) {
+          const d = await render.json().catch(() => ({}));
+          throw new Error(d.message || "Could not prepare media.");
+        }
       }
       const r = await fetch(`/api/social/posts/${id}`, {
         method: "PATCH",
@@ -138,13 +141,21 @@ export function SocialPlanner({ posts, assets }: { posts: any[]; assets: any[] }
     setBusy(true); setNotice("");
     try {
       for (const p of reviewPosts) {
-        const render = await fetch(`/api/social/posts/${p.id}/render`, { method: "POST" });
-        if (!render.ok) throw new Error("One or more drafts could not prepare media.");
+        if (p?.sourceAssets?.length) {
+          const render = await fetch(`/api/social/posts/${p.id}/render`, { method: "POST" });
+          if (!render.ok) throw new Error("One or more drafts could not prepare media.");
+        }
+        const scheduled = await fetch(`/api/social/posts/${p.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "scheduled", approved: true })
+        });
+        if (!scheduled.ok) {
+          const d = await scheduled.json().catch(() => ({}));
+          throw new Error(d.message || "Could not schedule one or more posts.");
+        }
       }
-      const r = await fetch("/api/social/approve-schedule", { method: "POST" });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.message || "Could not approve schedule.");
-      setNotice(d.message || "Week approved.");
+      setNotice(`Scheduled ${reviewPosts.length} post${reviewPosts.length === 1 ? "" : "s"} for this week.`);
       setTab("scheduled");
       router.refresh();
     } catch (e: any) { setNotice(e?.message || "Could not approve this week."); }
