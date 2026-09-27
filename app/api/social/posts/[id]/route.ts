@@ -63,10 +63,31 @@ export async function DELETE(_req: Request, { params }: Ctx) {
     return NextResponse.json({ message: "Published post history cannot be deleted from Vibe OS." }, { status: 409 });
   }
 
+  const { data: links } = await supabase.from("social_post_assets").select("asset_id").eq("post_id", id);
+  const assetIds = Array.from(new Set((links || []).map((x: any) => x.asset_id).filter(Boolean)));
+
   await supabase.from("social_post_media").delete().eq("post_id", id);
   await supabase.from("social_post_assets").delete().eq("post_id", id);
   const { error } = await supabase.from("social_posts").delete().eq("id", id);
   if (error) return NextResponse.json({ message: error.message }, { status: 500 });
+
+  for (const assetId of assetIds) {
+    const { data: remainingLinks } = await supabase.from("social_post_assets").select("post_id").eq("asset_id", assetId);
+    const remainingPostIds = Array.from(new Set((remainingLinks || []).map((x: any) => x.post_id).filter(Boolean)));
+    let stillUsed = false;
+    if (remainingPostIds.length) {
+      const { data: remainingPosts } = await supabase
+        .from("social_posts")
+        .select("id,status,published_at,external_post_id")
+        .in("id", remainingPostIds);
+      stillUsed = (remainingPosts || []).some((p: any) =>
+        p.published_at || p.external_post_id || ["scheduled","approved","published"].includes(String(p.status))
+      );
+    }
+    if (!stillUsed) {
+      await supabase.from("content_assets").update({ status: "inbox", updated_at: new Date().toISOString() }).eq("id", assetId);
+    }
+  }
 
   await supabase.from("activity_log").insert({
     source: "Vibe OS",
