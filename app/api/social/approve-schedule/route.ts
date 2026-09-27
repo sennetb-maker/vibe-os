@@ -18,6 +18,12 @@ export async function POST() {
   const approvedAt = new Date().toISOString();
   const { error } = await supabase.from("social_posts").update({ status: "scheduled", approved_at: approvedAt, updated_at: approvedAt }).in("id", ids);
   if (error) return NextResponse.json({ message: error.message }, { status: 500 });
+
+  const { data: links } = await supabase.from("social_post_assets").select("asset_id").in("post_id", ids);
+  const assetIds = Array.from(new Set((links || []).map((x: any) => x.asset_id).filter(Boolean)));
+  if (assetIds.length) {
+    await supabase.from("content_assets").update({ status: "used", updated_at: approvedAt }).in("id", assetIds);
+  }
   await supabase.from("activity_log").insert({ source: "Vibe OS", event_type: "social_schedule_approved", summary: `${ids.length} social post${ids.length === 1 ? "" : "s"} approved for the next 7 days`, payload: { post_ids: ids } });
   return NextResponse.json({ message: `Approved ${ids.length} post${ids.length === 1 ? "" : "s"} for the next 7 days.`, count: ids.length });
 }
