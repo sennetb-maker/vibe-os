@@ -55,8 +55,9 @@ export async function DELETE(_req: Request, { params }: Ctx) {
       .update({ status: "archived", archived_at: new Date().toISOString(), updated_at: new Date().toISOString() })
       .eq("id", id);
     return NextResponse.json({
-      message: "This asset is attached to an approved, scheduled, or published post, so it was archived instead of permanently deleted."
-    }, { status: 409 });
+      message: "This asset is attached to an approved, scheduled, or published post, so it was archived instead of permanently deleted.",
+      archived: true
+    });
   }
 
   const draftIds = Array.from(new Set(allLinked.map((p: any) => p.id).filter(Boolean)));
