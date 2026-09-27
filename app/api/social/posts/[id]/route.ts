@@ -35,6 +35,14 @@ export async function PATCH(req: Request, { params }: Ctx) {
 
   const { data, error } = await supabase.from("social_posts").update(patch).eq("id", id).select("id,platform,status,scheduled_for").single();
   if (error) return NextResponse.json({ message: error.message }, { status: 500 });
+
+  if (data.status === "scheduled" || data.status === "approved" || data.status === "published") {
+    const { data: links } = await supabase.from("social_post_assets").select("asset_id").eq("post_id", id);
+    const assetIds = Array.from(new Set((links || []).map((x: any) => x.asset_id).filter(Boolean)));
+    if (assetIds.length) {
+      await supabase.from("content_assets").update({ status: "used", updated_at: new Date().toISOString() }).in("id", assetIds);
+    }
+  }
   await supabase.from("activity_log").insert({ source: "Vibe OS", event_type: "social_post_updated", summary: `${data.platform} post moved to ${data.status}`, payload: { post_id: id, status: data.status } });
   return NextResponse.json({ message: status === "scheduled" ? "Post approved and scheduled." : "Post updated.", post: data });
 }
