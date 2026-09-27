@@ -255,9 +255,8 @@ export async function POST() {
       const { error: linkError } = await supabase.from("social_post_assets").insert(postAssetRows);
       if (linkError) throw new Error(linkError.message);
     }
-    if (usedIds.size) {
-      await supabase.from("content_assets").update({ status: "used", updated_at: new Date().toISOString() }).in("id", Array.from(usedIds));
-    }
+    // Draft/review proposals do not consume source content. Assets remain in the
+    // Content Library until the owner explicitly approves/schedules a post.
 
     await supabase.from("activity_log").insert({
       source: "Social Media Manager",
