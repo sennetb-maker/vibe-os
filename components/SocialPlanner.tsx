@@ -13,6 +13,16 @@ function dateKey(value: Date | string) {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
+function centralToday() {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: TZ, year: "numeric", month: "numeric", day: "numeric" }).formatToParts(new Date());
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value || 0);
+  return new Date(Date.UTC(get("year"), get("month") - 1, get("day"), 18, 0, 0));
+}
+
+function addDays(d: Date, days: number) {
+  return new Date(d.getTime() + days * 86400000);
+}
+
 function dayLabel(value: Date) {
   return {
     dow: new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: TZ }).format(value).toUpperCase(),
@@ -26,48 +36,79 @@ function postTime(value?: string | null) {
 }
 
 function prettyStatus(value?: string | null) {
-  const s = String(value || "working");
-  if (s === "review" || s === "ready_for_approval") return "Ready for Approval";
-  if (s === "working" || s === "draft") return "Agent Working";
-  if (s === "scheduled") return "Scheduled";
-  if (s === "approved") return "Approved";
+  const s = String(value || "review");
+  if (s === "review" || s === "ready_for_approval") return "Draft";
+  if (s === "working" || s === "draft") return "Draft";
+  if (s === "scheduled" || s === "approved") return "Scheduled";
   if (s === "published") return "Published";
-  if (s === "failed") return "Needs Attention";
+  if (s === "failed") return "Needs attention";
   return s.replaceAll("_", " ");
 }
 
-function isReview(p: any) { return p.status === "review" || p.status === "ready_for_approval"; }
-function isWorking(p: any) { return p.status === "working" || p.status === "draft"; }
+function bucket(p: any) {
+  if (p.status === "published") return "published";
+  if (p.status === "scheduled" || p.status === "approved") return "scheduled";
+  return "drafts";
+}
 
-export function SocialPlanner({ posts }: { posts: any[] }) {
+function thumb(p: any) {
+  return p?.renderedMedia?.[0]?.signedUrl || p?.renderedUrl || p?.sourceAssets?.[0]?.signedUrl || null;
+}
+
+function toLocalInput(value: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(value);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value || "";
+  return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
+}
+
+export function SocialPlanner({ posts, assets }: { posts: any[]; assets: any[] }) {
   const router = useRouter();
-  const [view, setView] = useState<"calendar" | "list">("calendar");
+  const [tab, setTab] = useState<"planner" | "drafts" | "scheduled" | "published">("planner");
+  const [view, setView] = useState<"week" | "list">("week");
+  const [platform, setPlatform] = useState("All");
+  const [weekOffset, setWeekOffset] = useState(0);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [selected, setSelected] = useState<any | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [draft, setDraft] = useState({
+    platform: "Instagram",
+    post_type: "image",
+    scheduled_for: toLocalInput(addDays(new Date(), 1)),
+    caption: "",
+    asset_ids: [] as string[],
+  });
 
-  const days = useMemo(() => {
-    const now = new Date();
-    const y = Number(new Intl.DateTimeFormat("en-US", { timeZone: TZ, year: "numeric" }).format(now));
-    const m = Number(new Intl.DateTimeFormat("en-US", { timeZone: TZ, month: "numeric" }).format(now));
-    const d = Number(new Intl.DateTimeFormat("en-US", { timeZone: TZ, day: "numeric" }).format(now));
-    return Array.from({ length: 7 }, (_, i) => new Date(Date.UTC(y, m - 1, d + i, 18, 0, 0)));
-  }, []);
+  const start = useMemo(() => addDays(centralToday(), weekOffset * 7), [weekOffset]);
+  const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(start, i)), [start]);
+  const dayKeys = useMemo(() => new Set(days.map(dateKey)), [days]);
 
-  const dayKeys = new Set(days.map((d) => dateKey(d)));
-  const reviewPosts = posts.filter((p) => isReview(p) && p.scheduled_for && dayKeys.has(dateKey(p.scheduled_for)));
-  const working = posts.filter(isWorking).length;
-  const scheduled = posts.filter((p) => p.status === "scheduled" || p.status === "approved").length;
-  const published = posts.filter((p) => p.status === "published").length;
+  const counts = useMemo(() => ({
+    drafts: posts.filter((p) => bucket(p) === "drafts").length,
+    scheduled: posts.filter((p) => bucket(p) === "scheduled").length,
+    published: posts.filter((p) => bucket(p) === "published").length,
+  }), [posts]);
+
+  const filtered = posts.filter((p) => {
+    if (platform !== "All" && p.platform !== platform) return false;
+    if (tab === "planner") return true;
+    return bucket(p) === tab;
+  });
+
+  const weekPosts = filtered.filter((p) => p.scheduled_for && dayKeys.has(dateKey(p.scheduled_for)));
+  const reviewPosts = posts.filter((p) => bucket(p) === "drafts" && p.scheduled_for && dayKeys.has(dateKey(p.scheduled_for)));
 
   async function generatePlan() {
     setBusy(true); setNotice("");
     try {
       const r = await fetch("/api/social/generate-plan", { method: "POST" });
       const d = await r.json();
-      setNotice(d.message || (r.ok ? "7-day plan created." : "Could not create the social plan."));
-      if (r.ok) router.refresh();
-    } catch { setNotice("Could not reach the Social Media Manager right now."); }
+      setNotice(d.message || (r.ok ? "Plan created." : "Could not build plan."));
+      if (r.ok) { setTab("drafts"); router.refresh(); }
+    } catch { setNotice("Could not reach the Social Media Manager."); }
     finally { setBusy(false); }
   }
 
@@ -75,73 +116,186 @@ export function SocialPlanner({ posts }: { posts: any[] }) {
     setBusy(true); setNotice("");
     try {
       const render = await fetch(`/api/social/posts/${id}/render`, { method: "POST" });
-      const renderData = await render.json();
-      if (!render.ok) throw new Error(renderData.message || "Could not prepare the edited media.");
-      const r = await fetch(`/api/social/posts/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "scheduled", approved: true }) });
-      const d = await r.json(); setNotice(d.message || (r.ok ? "Post approved." : "Could not approve post."));
-      if (r.ok) router.refresh();
-    } catch { setNotice("Could not approve this post right now."); }
+      if (!render.ok) {
+        const d = await render.json().catch(() => ({}));
+        throw new Error(d.message || "Could not prepare media.");
+      }
+      const r = await fetch(`/api/social/posts/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "scheduled", approved: true })
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.message || "Could not schedule post.");
+      setNotice("Post approved and scheduled.");
+      router.refresh();
+    } catch (e: any) { setNotice(e?.message || "Could not schedule this post."); }
     finally { setBusy(false); }
   }
 
-  async function approveSchedule() {
+  async function approveWeek() {
     if (!reviewPosts.length) return;
     setBusy(true); setNotice("");
     try {
-      const rendered = await Promise.all(reviewPosts.map(async (p) => {
-        const r = await fetch(`/api/social/posts/${p.id}/render`, { method: "POST" });
-        const d = await r.json();
-        return { ok: r.ok, message: d.message };
-      }));
-      const failed = rendered.filter((x) => !x.ok);
-      if (failed.length) throw new Error(`${failed.length} post${failed.length === 1 ? "" : "s"} could not prepare edited media. Open those drafts and review them before approving the schedule.`);
+      for (const p of reviewPosts) {
+        const render = await fetch(`/api/social/posts/${p.id}/render`, { method: "POST" });
+        if (!render.ok) throw new Error("One or more drafts could not prepare media.");
+      }
       const r = await fetch("/api/social/approve-schedule", { method: "POST" });
-      const d = await r.json(); setNotice(d.message || (r.ok ? "Schedule approved." : "Could not approve schedule."));
-      if (r.ok) router.refresh();
-    } catch { setNotice("Could not approve the schedule right now."); }
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.message || "Could not approve schedule.");
+      setNotice(d.message || "Week approved.");
+      setTab("scheduled");
+      router.refresh();
+    } catch (e: any) { setNotice(e?.message || "Could not approve this week."); }
     finally { setBusy(false); }
   }
 
-  const card = (p: any) => <div className={`calendarPost status-${String(p.status).replaceAll("_", "-")}`} key={p.id} role="button" tabIndex={0} onClick={() => setSelected(p)} onKeyDown={(e) => { if (e.key === "Enter") setSelected(p); }}>
-    <div className="calendarPostTop"><span className={`platformPill platform-${String(p.platform).toLowerCase()}`}>{p.platform}</span><small>{postTime(p.scheduled_for)}</small></div>
-    <b>{p.caption?.slice(0, 72) || p.product_name || "Social post in progress"}</b>
-    <span>{p.post_type ? String(p.post_type).toUpperCase() : "POST"}{p.product_name ? ` · ${p.product_name}` : ""}</span>
-    <em>{prettyStatus(p.status)}</em>
-    {isReview(p) && <button className="miniApprove" disabled={busy} onClick={(e) => { e.stopPropagation(); approveOne(p.id); }}>Approve</button>}
-  </div>;
+  async function deletePost(id: string) {
+    if (!window.confirm("Delete this draft?")) return;
+    setBusy(true); setNotice("");
+    try {
+      const r = await fetch(`/api/social/posts/${id}`, { method: "DELETE" });
+      const d = await r.json();
+      setNotice(d.message || (r.ok ? "Draft deleted." : "Could not delete draft."));
+      if (r.ok) { setSelected(null); router.refresh(); }
+    } finally { setBusy(false); }
+  }
+
+  async function createPost() {
+    if (!draft.caption.trim() && !draft.asset_ids.length) {
+      setNotice("Add a caption or select media first.");
+      return;
+    }
+    setBusy(true); setNotice("");
+    try {
+      const r = await fetch("/api/social/posts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...draft,
+          scheduled_for: draft.scheduled_for ? new Date(draft.scheduled_for).toISOString() : null,
+        })
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.message || "Could not create draft.");
+      setCreating(false);
+      setTab("drafts");
+      setNotice("Draft created.");
+      setDraft({ platform: "Instagram", post_type: "image", scheduled_for: toLocalInput(addDays(new Date(), 1)), caption: "", asset_ids: [] });
+      router.refresh();
+    } catch (e: any) { setNotice(e?.message || "Could not create draft."); }
+    finally { setBusy(false); }
+  }
+
+  function toggleAsset(id: string) {
+    setDraft((current) => ({
+      ...current,
+      asset_ids: current.asset_ids.includes(id)
+        ? current.asset_ids.filter((x) => x !== id)
+        : [...current.asset_ids, id].slice(0, 6)
+    }));
+  }
+
+  const card = (p: any) => {
+    const image = thumb(p);
+    return <article className={`metaPostCard status-${String(p.status).replaceAll("_", "-")}`} key={p.id} onClick={() => setSelected(p)}>
+      <div className="metaPostVisual">{image ? <img src={image} alt="" /> : <span>{String(p.platform || "P").slice(0, 2).toUpperCase()}</span>}</div>
+      <div className="metaPostBody">
+        <div className="metaPostTop"><span className={`platformPill platform-${String(p.platform).toLowerCase()}`}>{p.platform}</span><small>{postTime(p.scheduled_for)}</small></div>
+        <b>{p.caption?.slice(0, 86) || p.product_name || "Untitled social draft"}</b>
+        <span>{String(p.post_type || "post").toUpperCase()} · {prettyStatus(p.status)}</span>
+        <div className="metaPostActions">
+          {bucket(p) === "drafts" && <button disabled={busy} onClick={(e) => { e.stopPropagation(); approveOne(p.id); }}>Schedule</button>}
+          {bucket(p) !== "published" && <button className="quietDanger" disabled={busy} onClick={(e) => { e.stopPropagation(); deletePost(p.id); }}>Delete</button>}
+        </div>
+      </div>
+    </article>;
+  };
 
   return <>
-    <section className="socialWorkflowBar">
-      <div><small>01</small><b>Content Inbox</b><span>Raw source assets</span></div>
-      <div><small>02</small><b>Agent Working</b><span>{working} posts in production</span></div>
-      <div className={reviewPosts.length ? "attention" : ""}><small>03</small><b>Ready for Approval</b><span>{reviewPosts.length} in next 7 days</span></div>
-      <div><small>04</small><b>Scheduled</b><span>{scheduled} approved posts</span></div>
-      <div><small>05</small><b>Published</b><span>{published} tracked posts</span></div>
+    <section className="metaPlannerShell">
+      <div className="metaPlannerHeader">
+        <div>
+          <small>PLANNER & SCHEDULER</small>
+          <h2>Plan and manage every social post in one place.</h2>
+          <p>Drafts are drafts. Content is only marked used after you approve and schedule it.</p>
+        </div>
+        <div className="metaPrimaryActions">
+          <button className="secondaryAction" disabled={busy} onClick={generatePlan}>{busy ? "Working…" : "Build with AI"}</button>
+          <button className="primaryAction" onClick={() => setCreating(true)}>+ Create post</button>
+        </div>
+      </div>
+
+      <nav className="metaPlannerTabs">
+        <button className={tab === "planner" ? "active" : ""} onClick={() => setTab("planner")}>Planner</button>
+        <button className={tab === "drafts" ? "active" : ""} onClick={() => setTab("drafts")}>Drafts <span>{counts.drafts}</span></button>
+        <button className={tab === "scheduled" ? "active" : ""} onClick={() => setTab("scheduled")}>Scheduled <span>{counts.scheduled}</span></button>
+        <button className={tab === "published" ? "active" : ""} onClick={() => setTab("published")}>Published <span>{counts.published}</span></button>
+      </nav>
+
+      <div className="metaPlannerToolbar">
+        <div className="plannerDateNav">
+          <button onClick={() => setWeekOffset((x) => x - 1)}>‹</button>
+          <button onClick={() => setWeekOffset(0)}>Today</button>
+          <button onClick={() => setWeekOffset((x) => x + 1)}>›</button>
+          <b>{dayLabel(days[0]).date} – {dayLabel(days[6]).date}</b>
+        </div>
+        <div className="plannerFilters">
+          <select value={platform} onChange={(e) => setPlatform(e.target.value)}>
+            <option>All</option><option>Instagram</option><option>Facebook</option><option>TikTok</option>
+          </select>
+          <div className="viewToggle">
+            <button className={view === "week" ? "active" : ""} onClick={() => setView("week")}>Week</button>
+            <button className={view === "list" ? "active" : ""} onClick={() => setView("list")}>List</button>
+          </div>
+          {reviewPosts.length > 0 && <button className="approveSchedule" disabled={busy} onClick={approveWeek}>Schedule week ({reviewPosts.length})</button>}
+        </div>
+      </div>
+
+      {notice && <div className="inlineNotice">{notice}</div>}
+
+      {view === "week" ? <div className="metaWeekGrid">
+        {days.map((day) => {
+          const key = dateKey(day);
+          const label = dayLabel(day);
+          const dayPosts = weekPosts.filter((p) => dateKey(p.scheduled_for) === key);
+          return <div className="metaDay" key={key}>
+            <div className="metaDayHead"><small>{label.dow}</small><b>{label.date}</b></div>
+            <div className="metaDayBody">{dayPosts.length ? dayPosts.map(card) : <button className="emptySlot" onClick={() => {
+              setDraft((d) => ({ ...d, scheduled_for: toLocalInput(day) }));
+              setCreating(true);
+            }}>+ Add post</button>}</div>
+          </div>;
+        })}
+      </div> : <div className="metaList">
+        {filtered.length ? filtered.map(card) : <div className="libraryEmpty"><b>No posts here yet.</b><p>Create a post or let the Social Media Manager build draft options from your Content Library.</p></div>}
+      </div>}
     </section>
 
-    <div className="plannerToolbar">
-      <div className="viewToggle"><button className={view === "calendar" ? "active" : ""} onClick={() => setView("calendar")}>7-day calendar</button><button className={view === "list" ? "active" : ""} onClick={() => setView("list")}>List</button></div>
-      <div className="plannerActions">
-        <button className="generatePlan" disabled={busy} onClick={generatePlan}>{busy ? "Social Manager working…" : posts.length ? "Refresh 7-day plan" : "Build first 7-day plan"}</button>
-        <button className="approveSchedule" disabled={!reviewPosts.length || busy} onClick={approveSchedule}>{reviewPosts.length ? `Approve 7-day schedule (${reviewPosts.length})` : "Nothing awaiting approval"}</button>
-      </div>
-    </div>
-    {notice && <div className="inlineNotice">{notice}</div>}
-
-    {view === "calendar" ? <div className="twoWeekCalendar">
-      {days.map((day) => {
-        const key = dateKey(day); const label = dayLabel(day); const dayPosts = posts.filter((p) => p.scheduled_for && dateKey(p.scheduled_for) === key);
-        return <div className="calendarDay" key={key}><div className="calendarDayHead"><small>{label.dow}</small><b>{label.date}</b></div><div className="calendarDayBody">{dayPosts.length ? dayPosts.map(card) : <span className="emptyDay">Open</span>}</div></div>;
-      })}
-    </div> : <div className="plannerList">
-      {posts.length ? posts.map((p) => <div className="plannerListRow" key={p.id} role="button" tabIndex={0} onClick={() => setSelected(p)} onKeyDown={(e) => { if (e.key === "Enter") setSelected(p); }}>
-        <div className="plannerThumb">{p.renderedUrl ? <img src={p.renderedUrl} alt="" /> : p.sourceAssets?.[0]?.signedUrl ? <img src={p.sourceAssets[0].signedUrl} alt="" /> : <span>{String(p.platform || "P").slice(0, 2).toUpperCase()}</span>}</div>
-        <div className="plannerWhen"><b>{p.scheduled_for ? new Date(p.scheduled_for).toLocaleString("en-US", { timeZone: TZ, month: "short", day: "numeric" }) : "Date TBD"}</b><small>{postTime(p.scheduled_for)}</small></div>
-        <div className="plannerCopy"><b>{p.caption || "Caption being written by Social Media Manager"}</b><span>{p.platform} · {p.post_type || "post"}{p.destination_url ? " · linked" : ""}</span></div>
-        <em>{prettyStatus(p.status)}</em>
-        {isReview(p) && <button className="miniApprove" disabled={busy} onClick={(e) => { e.stopPropagation(); approveOne(p.id); }}>Approve</button>}
-      </div>) : <div className="libraryEmpty"><b>No social posts yet.</b><p>The Social Media Manager will create working drafts from your Content Inbox. Finished proposals will land here for approval with copy, destination links, platform and publish time.</p></div>}
+    {creating && <div className="composerShell" role="dialog" aria-modal="true" aria-label="Create social post">
+      <div className="postEditorBackdrop" onClick={() => setCreating(false)} />
+      <aside className="composerPanel">
+        <div className="postEditorHead"><div><small>CREATE POST</small><h3>New social draft</h3></div><button onClick={() => setCreating(false)}>×</button></div>
+        <div className="composerFields">
+          <div className="fieldPair">
+            <label><span>Platform</span><select value={draft.platform} onChange={(e) => setDraft({...draft, platform:e.target.value})}><option>Instagram</option><option>Facebook</option><option>TikTok</option></select></label>
+            <label><span>Format</span><select value={draft.post_type} onChange={(e) => setDraft({...draft, post_type:e.target.value})}><option value="image">Image</option><option value="carousel">Carousel</option><option value="reel">Reel</option><option value="video">Video</option><option value="story">Story</option></select></label>
+          </div>
+          <label><span>Date & time</span><input type="datetime-local" value={draft.scheduled_for} onChange={(e) => setDraft({...draft, scheduled_for:e.target.value})}/></label>
+          <label><span>Caption</span><textarea rows={5} value={draft.caption} onChange={(e) => setDraft({...draft, caption:e.target.value})} placeholder="Write your caption..." /></label>
+          <div><span className="fieldTitle">Media <small>{draft.asset_ids.length}/6 selected</small></span>
+            <div className="composerAssets">
+              {assets.filter((a) => a.status !== "archived").map((a) => <button key={a.id} className={draft.asset_ids.includes(a.id) ? "selected" : ""} onClick={() => toggleAsset(a.id)}>
+                {a.signedUrl && a.media_type?.startsWith("image/") ? <img src={a.signedUrl} alt="" /> : <span>{a.media_type?.startsWith("video/") ? "VIDEO" : "FILE"}</span>}
+              </button>)}
+            </div>
+          </div>
+          <div className="composerFooter"><button className="secondaryAction" onClick={() => setCreating(false)}>Cancel</button><button className="primaryAction" disabled={busy} onClick={createPost}>{busy ? "Saving…" : "Save draft"}</button></div>
+        </div>
+      </aside>
     </div>}
+
     {selected && <PostEditor post={selected} onClose={() => setSelected(null)} />}
   </>;
 }
